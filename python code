@@ -1,0 +1,99 @@
+import serial
+import time
+import RPi.GPIO as GPIO
+
+# GPIO setup
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+
+# Define pins for LED and Servo
+LED_PIN = 18
+SERVO_PIN = 12
+
+# Setup LED pin
+GPIO.setup(LED_PIN, GPIO.OUT)
+
+# Setup Servo
+GPIO.setup(SERVO_PIN, GPIO.OUT)
+servo = GPIO.PWM(SERVO_PIN, 50)  # 50Hz frequency
+servo.start(0)
+
+def set_servo_angle(angle):
+    """Convert angle to duty cycle and move servo"""
+    duty = angle / 18 + 2
+    GPIO.output(SERVO_PIN, True)
+    servo.ChangeDutyCycle(duty)
+    time.sleep(1)
+    GPIO.output(SERVO_PIN, False)
+    servo.ChangeDutyCycle(0)
+
+def parse_sensor_data(data):
+    """Parse the sensor data string from Arduino"""
+    try:
+        # Split the data into IR and Ultrasonic values
+        ir_part = data.split(',')[0]
+        ultrasonic_part = data.split(',')[1]
+        
+        ir_value = int(ir_part.split(':')[1].strip())
+        ultrasonic_value = int(ultrasonic_part.split(':')[1].strip())
+        
+        return ir_value, ultrasonic_value
+    except (ValueError, IndexError) as e:
+        print(f"Error parsing data: {e}")
+        return None, None
+
+# Open serial port (adjust port name and baud rate as needed)
+try:
+    ser = serial.Serial('/dev/ttyACM0', 9600, timeout=1)
+    ser.flush()
+except serial.SerialException as e:
+    print(f"Error opening serial port: {e}")
+    exit(1)
+
+def cleanup():
+    """Clean up GPIO and serial connection"""
+    servo.stop()
+    GPIO.cleanup()
+    ser.close()
+
+try:
+    while True:
+        if ser.in_waiting > 0:
+            # Read line from serial port
+            line = ser.readline().decode('utf-8').strip()
+            print(f"Raw data received: {line}")
+            
+            # Parse sensor values
+            ir_value, ultrasonic_value = parse_sensor_data(line)
+            
+            if ir_value is not None and ultrasonic_value is not None:
+                print(f"IR Value: {ir_value}, Ultrasonic Distance: {ultrasonic_value}")
+                
+                # Control servo based on IR sensor
+                if ir_value < 210:
+                   
+                    set_servo_angle(0)
+                    time.sleep(1)
+                   
+                    set_servo_angle(90)
+                else:
+                    
+                    set_servo_angle(0)
+                    time.sleep(4)
+                
+                # Control LED based on ultrasonic sensor
+                if ultrasonic_value < 20:
+                    print("LED ON")
+                    GPIO.output(LED_PIN, GPIO.HIGH)
+                else:
+                    print("LED OFF")
+                    GPIO.output(LED_PIN, GPIO.LOW)
+                
+                time.sleep(0.1)  # Small delay to prevent CPU overload
+
+except KeyboardInterrupt:
+    print("\nProgram terminated by user")
+    cleanup()
+except Exception as e:
+    print(f"An error occurred: {e}")
+    cleanup()
