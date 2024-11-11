@@ -1,0 +1,140 @@
+#include <Servo.h>
+
+// Pin Definitions
+#define IR_SENSOR_PIN A0
+#define TRIG_PIN 11
+#define ECHO_PIN 12
+#define SERVO_PIN 9
+#define LED_PIN 13
+#define BUZZER_PIN 8
+
+// Constants
+const unsigned long SERIAL_BAUD_RATE = 9600;
+const unsigned long MEASUREMENT_INTERVAL = 100; // 100ms between measurements
+const int ULTRASONIC_TIMEOUT = 25000; // Timeout for ultrasonic sensor in microseconds
+
+// Global Variables
+Servo myServo;
+unsigned long lastMeasurementTime = 0;
+
+// Struct to hold sensor data
+struct SensorData {
+  int irValue;
+  long ultrasonicDistance;
+};
+
+void setup() {
+  // Initialize Serial Communication
+  Serial.begin(SERIAL_BAUD_RATE);
+  
+  // Configure Pins
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  
+  // Initialize Servo
+  myServo.attach(SERVO_PIN);
+  myServo.write(0); // Set initial position
+  
+  // Initialize trigger pin for ultrasonic sensor
+  digitalWrite(TRIG_PIN, LOW);
+}
+
+// Function to read IR sensor
+int readIRSensor() {
+  int irValue = analogRead(IR_SENSOR_PIN);
+  return irValue;
+}
+
+// Function to read Ultrasonic sensor
+long readUltrasonicSensor() {
+  // Clear the trigger pin
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  
+  // Send trigger pulse
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  
+  // Read the echo pin
+  long duration = pulseIn(ECHO_PIN, HIGH, ULTRASONIC_TIMEOUT);
+  
+  // Calculate distance in centimeters
+  long distance = duration * 0.034 / 2;
+  
+  // Handle timeout or invalid readings
+  if (duration == 0 || distance > 400) {
+    return -1; // Error value
+  }
+  
+  return distance;
+}
+
+// Function to read all sensors
+SensorData readSensors() {
+  SensorData data;
+  data.irValue = readIRSensor();
+  data.ultrasonicDistance = readUltrasonicSensor();
+  return data;
+}
+
+// Function to control actuators based on sensor readings
+void controlActuators(const SensorData& data) {
+  // Control Servo based on IR sensor
+  if (data.irValue < 210) {
+    myServo.write(0);
+    delay(1000);
+    myServo.write(90);
+    delay(1000);
+  } else {
+    myServo.write(0);
+    delay(1000);
+  }
+  
+  // Control LED and Buzzer based on ultrasonic sensor
+  if (data.ultrasonicDistance != -1) {  // Check for valid reading
+    if (data.ultrasonicDistance < 20) {
+      digitalWrite(LED_PIN, HIGH);
+      tone(BUZZER_PIN, 1000);
+    } else {
+      digitalWrite(LED_PIN, LOW);
+      noTone(BUZZER_PIN);
+    }
+  }
+}
+
+// Function to send data to Raspberry Pi
+void sendDataToRaspberryPi(const SensorData& data) {
+  // Format: "IR: [value], Ultrasonic: [value]"
+  Serial.print("IR: ");
+  Serial.print(data.irValue);
+  Serial.print(", Ultrasonic: ");
+  Serial.println(data.ultrasonicDistance);
+}
+
+void loop() {
+  // Check if it's time for a new measurement
+  unsigned long currentTime = millis();
+  if (currentTime - lastMeasurementTime >= MEASUREMENT_INTERVAL) {
+    // Read sensors
+    SensorData sensorData = readSensors();
+    
+    // Control actuators
+    controlActuators(sensorData);
+    
+    // Send data to Raspberry Pi
+    sendDataToRaspberryPi(sensorData);
+    
+    // Update last measurement time
+    lastMeasurementTime = currentTime;
+  }
+  
+  // Check for any commands from Raspberry Pi
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    // Process any commands here if needed
+    // For future expansion of bi-directional communication
+  }
+}
